@@ -1,0 +1,21 @@
+# Copyright 2026 chao.sun
+# SPDX-License-Identifier: Apache-2.0
+
+ARG GO_IMAGE=golang:1.22-bookworm
+FROM ${GO_IMAGE} AS build
+
+WORKDIR /src
+COPY examples/hubclient-stub/go.mod examples/hubclient-stub/go.sum* ./examples/hubclient-stub/
+WORKDIR /src/examples/hubclient-stub
+RUN go mod download
+
+COPY examples/hubclient-stub/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/hubclient-stub .
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl bash \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /out/hubclient-stub /usr/local/bin/hubclient-stub
+ENTRYPOINT ["/usr/local/bin/hubclient-stub"]

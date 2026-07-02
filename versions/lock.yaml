@@ -1,0 +1,23 @@
+# hi-im bundle version lock — bump only after smoke PASS
+schema: 1
+bundle: m3-smoke
+updated: "2026-07-02"
+
+images:
+  hi-im-hub:
+    repo: ghcr.io/sunchao1/hi-im-core
+    tag: v0.1.0
+    # Local dev: set HIIM_HUB_BUILD_CONTEXT=../hi-im-core in deploy/compose/.env
+  hi-im-hubclient-stub:
+    repo: ghcr.io/sunchao1/hi-im
+    tag: v0.1.0
+
+modules:
+  hi-im-api: v0.1.0
+  hi-im-hubclient: v0.1.0
+
+git:
+  hi-im-core: v0.1.0
+  hi-im-api: v0.1.0
+  hi-im-hubclient: v0.1.0
+  hi-im: main

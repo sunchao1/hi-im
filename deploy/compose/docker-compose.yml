@@ -1,0 +1,21 @@
+# hi-im meta repo — base compose (networks + shared env)
+# M3 stack: add -f docker-compose.m3.yml and profiles infra,hub,smoke
+
+name: hi-im
+
+x-hiim-env: &hiim-env
+  HIIM_AUTH_USER: ${HIIM_AUTH_USER:-proxy}
+  HIIM_AUTH_PASS: ${HIIM_AUTH_PASS:-proxy}
+  HIIM_CONSUMER_NID: ${HIIM_CONSUMER_NID:-40001}
+  HIIM_PRODUCER_NID: ${HIIM_PRODUCER_NID:-50001}
+  HIIM_BENCH_CMD: ${HIIM_BENCH_CMD:-0x030B}
+  HIIM_SMOKE_TIMEOUT: ${HIIM_SMOKE_TIMEOUT:-30}
+
+networks:
+  hiim:
+    driver: bridge
+
+volumes:
+  smoke-data:
+
+services: {}

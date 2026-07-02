@@ -1,0 +1,105 @@
+# M3 minimal stack: hub + redis + hubclient stub + unicast smoke
+
+x-hiim-env: &hiim-env
+  HIIM_AUTH_USER: ${HIIM_AUTH_USER:-proxy}
+  HIIM_AUTH_PASS: ${HIIM_AUTH_PASS:-proxy}
+  HIIM_CONSUMER_NID: ${HIIM_CONSUMER_NID:-40001}
+  HIIM_PRODUCER_NID: ${HIIM_PRODUCER_NID:-50001}
+  HIIM_BENCH_CMD: ${HIIM_BENCH_CMD:-0x030B}
+  HIIM_SMOKE_TIMEOUT: ${HIIM_SMOKE_TIMEOUT:-30}
+
+services:
+  redis:
+    profiles: ["infra"]
+    image: redis:7-alpine
+    networks: [hiim]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  hub:
+    profiles: ["hub", "smoke"]
+    image: ${HIIM_HUB_IMAGE:-ghcr.io/sunchao1/hi-im-core/hub:v0.1.0}
+    build:
+      context: ${HIIM_HUB_BUILD_CONTEXT:-../../../hi-im-core}
+      dockerfile: deploy/docker/Dockerfile.hub
+      args:
+        BASE_IMAGE: ${HIIM_BASE_IMAGE:-ubuntu:22.04}
+    networks: [hiim]
+    environment:
+      <<: *hiim-env
+    command:
+      - --forward-listen
+      - 0.0.0.0:28888
+      - --backend-listen
+      - 0.0.0.0:28889
+      - --health-listen
+      - 0.0.0.0:8080
+      - --auth-user
+      - ${HIIM_AUTH_USER:-proxy}
+      - --auth-pass
+      - ${HIIM_AUTH_PASS:-proxy}
+      - --reactor-threads
+      - "2"
+      - --worker-threads
+      - "2"
+    ports:
+      - "${HIIM_FORWARD_HOST_PORT:-28888}:28888"
+      - "${HIIM_BACKEND_HOST_PORT:-28889}:28889"
+      - "${HIIM_HEALTH_HOST_PORT:-18080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  stub-consumer:
+    profiles: ["smoke"]
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.stub
+    image: hi-im-stub:${HIIM_STUB_TAG:-local}
+    networks: [hiim]
+    environment:
+      <<: *hiim-env
+      HIIM_FORWARD_ADDR: hub:28888
+      HIIM_NID: ${HIIM_CONSUMER_NID:-40001}
+      HIIM_SUB_CMDS: ${HIIM_BENCH_CMD:-0x030B}
+      HIIM_SMOKE_STATE_FILE: /smoke/recv.count
+      HIIM_SMOKE_READY_FILE: /smoke/consumer.ready
+    volumes:
+      - smoke-data:/smoke
+    depends_on:
+      hub:
+        condition: service_healthy
+    command: ["--role=consumer"]
+    restart: unless-stopped
+
+  smoke-runner:
+    profiles: ["smoke"]
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.stub
+    image: hi-im-stub:${HIIM_STUB_TAG:-local}
+    networks: [hiim]
+    working_dir: /workspace
+    volumes:
+      - ../..:/workspace:ro
+      - smoke-data:/smoke
+    environment:
+      <<: *hiim-env
+      HIIM_HEALTH_URL: http://hub:8080/readyz
+      HIIM_BACKEND_ADDR: hub:28889
+      HIIM_DEST_NID: ${HIIM_CONSUMER_NID:-40001}
+      HIIM_SMOKE_STATE_FILE: /smoke/recv.count
+      HIIM_SMOKE_READY_FILE: /smoke/consumer.ready
+      HIIM_SMOKE_TIMEOUT: ${HIIM_SMOKE_TIMEOUT:-30}
+      HIIM_STUB_BIN: /usr/local/bin/hubclient-stub
+    depends_on:
+      hub:
+        condition: service_healthy
+      stub-consumer:
+        condition: service_started
+    entrypoint: ["/bin/bash", "/workspace/scripts/smoke/m3-unicast.sh"]
