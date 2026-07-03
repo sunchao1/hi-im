@@ -9,10 +9,26 @@
 make m6-demo
 ```
 
-浏览器打开：
+浏览器打开（端口见 `deploy/compose/.env` 的 `HIIM_DEMO_WEB_PORT`，默认 8088；本机若与 beehive 冲突可改为 **8089**）：
 
-- 窗口 A：`http://127.0.0.1:8088/group.html?gw=1`（gateway 28080）
-- 窗口 B：`http://127.0.0.1:8088/group.html?gw=2`（gateway 28081）
+- 窗口 A：`http://127.0.0.1:8089/group.html?gw=1`（gateway 28080）
+- 窗口 B：`http://127.0.0.1:8089/group.html?gw=2`（gateway 28081）
+
+**勿打开 `8088/group.html`**：若本机跑着 beehive 旧 demo，那是另一个项目，会出现 `The string did not match the expected pattern` 等错误。
+
+若出现 `ONLINE-ACK 超时`：
+
+1. **推荐**：`make m6-heal`（按 hub → usrsvr → gateway 顺序重启并自动探测 ONLINE）
+2. 或完整重建：`make m6-down && make m6-demo`
+3. 浏览器 **硬刷新**（Cmd+Shift+R），确认地址是 **8089** 不是 8088
+
+自检（注册后若仍超时）：
+
+```bash
+docker logs hi-im-gateway-1 2>&1 | grep 'online:' | tail -3
+docker logs hi-im-usrsvr-1 2>&1 | grep 'online:' | tail -3   # 应有 online: ok
+docker logs hi-im-hub-1 2>&1 | grep bridge | tail -3            # no subscribers = hub 订阅丢失
+```
 
 ## 操作
 

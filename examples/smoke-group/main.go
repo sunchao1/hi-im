@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -54,6 +53,16 @@ func main() {
 	gatewayA := env("HIIM_GATEWAY_A_WS", "ws://127.0.0.1:28080/ws")
 	gatewayB := env("HIIM_GATEWAY_B_WS", "ws://127.0.0.1:28081/ws")
 
+	onlineOnly := len(os.Args) > 1 && os.Args[1] == "-online-only"
+	if onlineOnly {
+		if err := probeOnline(usrsvr, gatewayA); err != nil {
+			fmt.Fprintf(os.Stderr, "\nM6 online probe FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("M6 PASS: online probe OK")
+		return
+	}
+
 	if err := run(usrsvr, gatewayA, gatewayB); err != nil {
 		fmt.Fprintf(os.Stderr, "\nM6 smoke-group FAILED: %v\n", err)
 		os.Exit(1)
@@ -66,6 +75,16 @@ func env(k, def string) string {
 		return v
 	}
 	return def
+}
+
+func probeOnline(usrsvr, gatewayA string) error {
+	fmt.Println("[probe] register + online uid=100001")
+	c, err := setupClient(usrsvr, gatewayA, 100001)
+	if err != nil {
+		return err
+	}
+	defer c.close()
+	return nil
 }
 
 func run(usrsvr, gatewayA, gatewayB string) error {
@@ -112,7 +131,7 @@ func run(usrsvr, gatewayA, gatewayB string) error {
 		}
 		ch <- nil
 	}()
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 	if err := a.groupChat(gid, "group hello"); err != nil {
 		return err
 	}
@@ -297,17 +316,13 @@ func (c *wsClient) sendRaw(cmdID uint32, body []byte) error {
 }
 
 func (c *wsClient) waitCmd(want uint32, timeout time.Duration) (*header.Header, []byte, error) {
-	deadline := time.Now().Add(timeout)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		_ = c.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := c.conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return nil, nil, fmt.Errorf("read cmd 0x%04X: %w", want, err)
+	}
+	for {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				continue
-			}
-			lastErr = err
-			break
+			return nil, nil, fmt.Errorf("read cmd 0x%04X: %w", want, err)
 		}
 		hdr, payload, err := parseFrame(data)
 		if err != nil {
@@ -317,10 +332,6 @@ func (c *wsClient) waitCmd(want uint32, timeout time.Duration) (*header.Header, 
 			return hdr, payload, nil
 		}
 	}
-	if lastErr != nil {
-		return nil, nil, fmt.Errorf("read cmd 0x%04X: %w", want, lastErr)
-	}
-	return nil, nil, fmt.Errorf("timeout cmd 0x%04X", want)
 }
 
 func (c *wsClient) nextSeq() uint64 {

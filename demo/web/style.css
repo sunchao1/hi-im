@@ -35,6 +35,7 @@ button {
   cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.btn-disabled { opacity: 0.5; cursor: not-allowed; }
 #status { margin-left: auto; font-size: 0.85rem; }
 #status.ok { color: #00ba7c; }
 #status.err { color: #f4212e; }

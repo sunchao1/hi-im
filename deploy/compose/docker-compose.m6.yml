@@ -70,7 +70,7 @@ services:
       seqsvr:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/readyz"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -95,7 +95,7 @@ services:
       usrsvr:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/readyz"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -120,7 +120,7 @@ services:
       usrsvr:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -147,7 +147,7 @@ services:
       usrsvr:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
       interval: 5s
       timeout: 3s
       retries: 12
