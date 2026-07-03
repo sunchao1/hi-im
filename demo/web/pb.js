@@ -74,7 +74,17 @@
   }
 
   function bytesToString(b) {
-    return new TextDecoder().decode(b);
+    if (b == null) return "";
+    if (typeof b === "string") return b;
+    if (b instanceof Uint8Array) return new TextDecoder().decode(b);
+    if (b instanceof ArrayBuffer) return new TextDecoder().decode(b);
+    return String(b);
+  }
+
+  function fieldStringValue(f, n) {
+    const v = f[n];
+    if (v == null) return "";
+    return bytesToString(v);
   }
 
   global.PB = {
@@ -96,7 +106,7 @@
         sid: f[2],
         seq: f[3],
         code: f[7],
-        errmsg: f[8] ? bytesToString(f[8]) : "",
+        errmsg: fieldStringValue(f, 8),
       };
     },
     encodeRoomJoin({ uid, rid }) {
@@ -109,7 +119,7 @@
         rid: f[2],
         gid: f[3],
         code: f[4],
-        errmsg: f[5] ? bytesToString(f[5]) : "",
+        errmsg: fieldStringValue(f, 5),
       };
     },
     encodeRoomChat({ uid, rid, gid, level, time, text }) {
@@ -128,14 +138,14 @@
         uid: f[1],
         rid: f[2],
         gid: f[3],
-        text: f[6] ? bytesToString(f[6]) : "",
+        text: fieldStringValue(f, 6),
       };
     },
     decodeSimpleAck(bytes) {
       const f = decodeFields(bytes);
       return {
         code: f[1],
-        errmsg: f[2] ? bytesToString(f[2]) : "",
+        errmsg: fieldStringValue(f, 2),
       };
     },
     encodeGroupCreat({ uid, name, desc }) {
@@ -177,7 +187,7 @@
       return {
         uid: f[1],
         gid: f[2],
-        text: f[5] ? bytesToString(f[5]) : "",
+        text: fieldStringValue(f, 5),
       };
     },
     decodeGroupNtf(bytes) {

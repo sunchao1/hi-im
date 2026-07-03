@@ -19,6 +19,7 @@ const state = {
   seq: 1,
   ws: null,
   pendingOnline: null,
+  pendingJoin: null,
   onlineReady: false,
 };
 
@@ -124,7 +125,7 @@ function connectWs() {
     };
     ws.onerror = () => reject(new Error("websocket 连接失败，请确认 gateway 端口可达"));
     ws.onclose = () => {
-      setStatus("WS closed", false);
+      setStatus("WS closed — 请重新点「注册并连接」", false);
       if (state.pendingOnline) {
         clearTimeout(state.pendingOnline.timer);
         state.pendingOnline.reject(new Error("连接在 ONLINE 完成前关闭"));
@@ -143,6 +144,14 @@ function send(cmd, bodyBytes) {
 }
 
 function onMessage(buf) {
+  try {
+    handleMessage(buf);
+  } catch (e) {
+    log(`decode error: ${e.message || e}`, "err");
+  }
+}
+
+function handleMessage(buf) {
   const msg = parseMsg(buf);
   switch (msg.cmd) {
     case CMD.ONLINE_ACK: {
@@ -165,6 +174,7 @@ function onMessage(buf) {
         state.pendingOnline.resolve();
         state.pendingOnline = null;
       }
+      resyncGroupAfterOnline();
       break;
     }
     case CMD.GROUP_CREAT_ACK: {
@@ -189,6 +199,10 @@ function onMessage(buf) {
     case CMD.GROUP_JOIN_ACK: {
       const ack = PB.decodeSimpleAck(msg.body);
       const code = ack.code ?? 0;
+      if (state.pendingJoin) {
+        clearTimeout(state.pendingJoin.timer);
+        state.pendingJoin = null;
+      }
       if (code !== 0) {
         log(`JOIN-ACK 失败: ${ack.errmsg || code}`, "err");
         return;
@@ -205,11 +219,32 @@ function onMessage(buf) {
     }
     case CMD.GROUP_CHAT: {
       const chat = PB.decodeGroupChat(msg.body);
+      // Skip server echo for our own sends (already shown in sendChat local echo).
+      if (Number(chat.uid) === state.uid) break;
       log(`[uid ${chat.uid}] ${chat.text}`);
+      break;
+    }
+    case CMD.GROUP_CHAT_ACK: {
+      const ack = PB.decodeSimpleAck(msg.body);
+      const code = ack.code ?? 0;
+      if (code !== 0) {
+        log(`CHAT-ACK 失败: ${ack.errmsg || code}`, "err");
+      }
       break;
     }
     default:
       log(`recv cmd=0x${msg.cmd.toString(16)}`, "sys");
+  }
+}
+
+function resyncGroupAfterOnline() {
+  const gid = Number($("gid").value) || state.gid;
+  if (!gid) return;
+  try {
+    send(CMD.GROUP_JOIN, PB.encodeGroupJoin({ uid: state.uid, gid }));
+    log(`同步群成员 gid=${gid}…`, "sys");
+  } catch (e) {
+    log(String(e.message || e), "err");
   }
 }
 
@@ -239,12 +274,29 @@ function joinGroup() {
     log("请先点「注册并连接」，等待日志出现 ONLINE ok", "err");
     return;
   }
-  const gid = Number($("gid").value);
-  if (!gid) {
-    log("填写 GID", "err");
+  const raw = $("gid").value.trim();
+  const gid = Number(raw);
+  if (!raw || !gid) {
+    log("请填写 GID：窗口 A 建群成功后日志里的 gid=数字，或 URL 加 ?gid=数字", "err");
     return;
   }
-  send(CMD.GROUP_JOIN, PB.encodeGroupJoin({ uid: state.uid, gid }));
+  if (state.pendingJoin) {
+    log("上一条加群请求仍在等待 ACK…", "err");
+    return;
+  }
+  log(`加入群中 gid=${gid}...`, "sys");
+  const timer = setTimeout(() => {
+    state.pendingJoin = null;
+    log("JOIN-ACK 超时：hub 可能丢失 SUB，请运行 make m6-heal 后重试", "err");
+  }, 15000);
+  state.pendingJoin = { gid, timer };
+  try {
+    send(CMD.GROUP_JOIN, PB.encodeGroupJoin({ uid: state.uid, gid }));
+  } catch (e) {
+    clearTimeout(timer);
+    state.pendingJoin = null;
+    log(String(e.message || e), "err");
+  }
 }
 
 function sendChat() {
@@ -261,12 +313,20 @@ function sendChat() {
       text,
     })
   );
+  log(`[uid ${state.uid}] ${text}`, "self");
   $("chatBox").value = "";
 }
 
 $("gwA").textContent = "ws://127.0.0.1:28080/ws (?gw=1)";
 $("gwB").textContent = "ws://127.0.0.1:28081/ws (?gw=2)";
 $("wsUrl").value = DemoCommon.gatewayWS();
+
+(function applyGidFromURL() {
+  const gidParam = new URLSearchParams(window.location.search).get("gid");
+  if (gidParam && Number(gidParam) > 0) {
+    $("gid").value = gidParam;
+  }
+})();
 
 $("goBtn").addEventListener("click", () => {
   goOnline().catch((e) => {
@@ -279,4 +339,10 @@ $("joinBtn").addEventListener("click", joinGroup);
 $("sendBtn").addEventListener("click", sendChat);
 $("chatBox").addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendChat();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    log("页面在后台：Safari 可能延迟收消息，测试时请保持本窗口在前台", "sys");
+  }
 });

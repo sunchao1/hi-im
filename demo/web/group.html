@@ -12,7 +12,8 @@
     <p class="hint">
       开两个浏览器窗口：<strong>窗口 A</strong> uid=<code>100001</code> gateway=<code id="gwA"></code>；
       <strong>窗口 B</strong> uid=<code>100002</code> gateway=<code id="gwB"></code>。
-      A 建群后 B 用同一 gid 加群，即可互发消息。<strong>须先点「注册并连接」，日志出现 ONLINE ok 后再建群。</strong>
+      A 建群后 B 在 GID 栏填入同一数字再点「加入群」（也可 <code>?gw=2&amp;gid=1</code>）。
+      <strong>须先点「注册并连接」，日志出现 ONLINE ok 后再操作。</strong>
     </p>
     <section class="panel">
       <label>Gateway WS <input id="wsUrl" type="text" size="40"></label>
@@ -23,7 +24,7 @@
     <section class="panel">
       <label>群名 <input id="groupName" type="text" value="demo-group"></label>
       <button id="creatBtn" type="button" class="btn-disabled" aria-disabled="true">创建群</button>
-      <label>GID <input id="gid" type="number" value="0"></label>
+      <label>GID <input id="gid" type="number" min="1" placeholder="A 建群后的 gid"></label>
       <button id="joinBtn" type="button" class="btn-disabled" aria-disabled="true">加入群</button>
     </section>
     <section class="panel">
@@ -32,8 +33,8 @@
     </section>
     <section id="log"></section>
   </main>
-  <script src="demo-common.js?v=20260703b"></script>
-  <script src="pb.js?v=20260703b"></script>
-  <script src="group-app.js?v=20260703b"></script>
+  <script src="demo-common.js?v=20260703i"></script>
+  <script src="pb.js?v=20260703i"></script>
+  <script src="group-app.js?v=20260703i"></script>
 </body>
 </html>

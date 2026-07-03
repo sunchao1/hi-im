@@ -43,6 +43,15 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
+# Backends may have connected before hub finished; reconnect hub clients.
+echo "[m6-heal] reconnect backends to hub..."
+docker restart hi-im-usrsvr-1 hi-im-msgsvr-1 >/dev/null
+for i in $(seq 1 30); do
+  docker exec hi-im-usrsvr-1 wget -qO- http://127.0.0.1:8081/readyz >/dev/null 2>&1 && \
+  docker exec hi-im-msgsvr-1 wget -qO- http://127.0.0.1:8082/readyz >/dev/null 2>&1 && break
+  sleep 1
+done
+
 echo "[m6-heal] restart gateways..."
 "${COMPOSE[@]}" "${PROFILES[@]}" up -d --build gateway gateway-2
 
