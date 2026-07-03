@@ -23,6 +23,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	imv1 "github.com/sunchao1/hi-im-api/gen/go/im/v1"
@@ -54,12 +55,21 @@ func main() {
 	gatewayB := env("HIIM_GATEWAY_B_WS", "ws://127.0.0.1:28081/ws")
 
 	onlineOnly := len(os.Args) > 1 && os.Args[1] == "-online-only"
+	burstMode := len(os.Args) > 1 && os.Args[1] == "-burst"
 	if onlineOnly {
 		if err := probeOnline(usrsvr, gatewayA); err != nil {
 			fmt.Fprintf(os.Stderr, "\nM6 online probe FAILED: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Println("M6 PASS: online probe OK")
+		return
+	}
+	if burstMode {
+		if err := runBurst(usrsvr, gatewayA, gatewayB, 7); err != nil {
+			fmt.Fprintf(os.Stderr, "\nM6 burst FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("M6 PASS: burst group chat OK")
 		return
 	}
 
@@ -140,6 +150,92 @@ func run(usrsvr, gatewayA, gatewayB string) error {
 	}
 
 	fmt.Println("[5/5] done")
+	return nil
+}
+
+func runBurst(usrsvr, gatewayA, gatewayB string, n int) error {
+	fmt.Printf("[burst] register + online uid=100001,100002; %d msgs each way\n", n)
+	a, err := setupClient(usrsvr, gatewayA, 100001)
+	if err != nil {
+		return err
+	}
+	defer a.close()
+	b, err := setupClient(usrsvr, gatewayB, 100002)
+	if err != nil {
+		return err
+	}
+	defer b.close()
+
+	gid, err := a.groupCreat("burst-group", "burst test")
+	if err != nil {
+		return err
+	}
+	if err := b.groupJoin(gid); err != nil {
+		return err
+	}
+
+	recvAll := func(c *wsClient, peerUID uint64, n int, timeout time.Duration) error {
+		got := make(map[string]bool, n)
+		deadline := time.Now().Add(timeout)
+		for len(got) < n && time.Now().Before(deadline) {
+			_, payload, err := c.waitAnyGroupChat(deadline.Sub(time.Now()))
+			if err != nil {
+				break
+			}
+			chat := &imv1.GroupChat{}
+			if err := proto.Unmarshal(payload, chat); err != nil {
+				continue
+			}
+			if chat.GetText() == "" {
+				continue
+			}
+			got[chat.GetText()] = true
+		}
+		for i := 1; i <= n; i++ {
+			want := fmt.Sprintf("%d+%d", peerUID, i)
+			if !got[want] {
+				return fmt.Errorf("uid=%d missing %q (got %d/%d)", peerUID, want, len(got), n)
+			}
+		}
+		return nil
+	}
+
+	fmt.Println("[burst] A -> B")
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 1; i <= n; i++ {
+			text := fmt.Sprintf("%d+%d", a.uid, i)
+			if err := a.groupChat(gid, text); err != nil {
+				fmt.Fprintf(os.Stderr, "A send %s: %v\n", text, err)
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}()
+	if err := recvAll(b, a.uid, n, 30*time.Second); err != nil {
+		return fmt.Errorf("B recv from A: %w", err)
+	}
+	wg.Wait()
+
+	fmt.Println("[burst] B -> A")
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 1; i <= n; i++ {
+			text := fmt.Sprintf("%d+%d", b.uid, i)
+			if err := b.groupChat(gid, text); err != nil {
+				fmt.Fprintf(os.Stderr, "B send %s: %v\n", text, err)
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}()
+	if err := recvAll(a, b.uid, n, 30*time.Second); err != nil {
+		return fmt.Errorf("A recv from B: %w", err)
+	}
+	wg.Wait()
 	return nil
 }
 
@@ -329,6 +425,28 @@ func (c *wsClient) waitCmd(want uint32, timeout time.Duration) (*header.Header, 
 			continue
 		}
 		if hdr.Cmd == want {
+			return hdr, payload, nil
+		}
+	}
+}
+
+func (c *wsClient) waitAnyGroupChat(timeout time.Duration) (*header.Header, []byte, error) {
+	if timeout <= 0 {
+		return nil, nil, fmt.Errorf("read GROUP_CHAT: timeout")
+	}
+	if err := c.conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return nil, nil, err
+	}
+	for {
+		_, data, err := c.conn.ReadMessage()
+		if err != nil {
+			return nil, nil, err
+		}
+		hdr, payload, err := parseFrame(data)
+		if err != nil {
+			continue
+		}
+		if hdr.Cmd == cmd.CMD_GROUP_CHAT {
 			return hdr, payload, nil
 		}
 	}
