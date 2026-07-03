@@ -1,0 +1,207 @@
+# M6 group chat stack: hub + redis + mysql + seqsvr + usrsvr + msgsvr + gateway×2 + smoke
+
+x-hiim-m6-env: &hiim-m6-env
+  HIIM_AUTH_USER: ${HIIM_AUTH_USER:-proxy}
+  HIIM_AUTH_PASS: ${HIIM_AUTH_PASS:-proxy}
+  HIIM_SMOKE_TIMEOUT: ${HIIM_SMOKE_TIMEOUT:-60}
+  HIIM_BUILD_ROOT: ${HIIM_BUILD_ROOT:-../../..}
+
+x-hiim-backend: &hiim-backend
+  HIIM_BACKEND_ADDR: hub:28889
+  HIIM_REDIS_ADDR: redis:6379
+  <<: *hiim-m6-env
+
+services:
+  mysql:
+    profiles: ["infra", "biz", "smoke", "demo"]
+    image: mysql:8.0
+    networks: [hiim]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${HIIM_MYSQL_ROOT_PASSWORD:-hiim}
+      MYSQL_DATABASE: hiim
+    volumes:
+      - ../../../hi-im-seqsvr/deploy/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${HIIM_MYSQL_ROOT_PASSWORD:-hiim}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  seqsvr:
+    profiles: ["biz", "smoke", "demo"]
+    build:
+      context: ${HIIM_BUILD_ROOT:-../../..}
+      dockerfile: hi-im/deploy/docker/Dockerfile.m6-seqsvr
+    image: hi-im-seqsvr:${HIIM_M6_TAG:-local}
+    networks: [hiim]
+    environment:
+      <<: *hiim-m6-env
+      HIIM_MYSQL_DSN: root:${HIIM_MYSQL_ROOT_PASSWORD:-hiim}@tcp(mysql:3306)/hiim?parseTime=true
+      HIIM_GRPC_LISTEN: ":50051"
+      HIIM_HTTP_LISTEN: ":8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  usrsvr:
+    profiles: ["biz", "smoke", "demo"]
+    build:
+      context: ${HIIM_BUILD_ROOT:-../../..}
+      dockerfile: hi-im/deploy/docker/Dockerfile.m6-usrsvr
+    image: hi-im-usrsvr:${HIIM_M6_TAG:-local}
+    networks: [hiim]
+    environment:
+      <<: *hiim-backend
+      HIIM_NID: "30001"
+      HIIM_HTTP_LISTEN: ":8081"
+      HIIM_SEQSVR_ADDR: seqsvr:50051
+      HIIM_M4_SKIP_TOKEN: "true"
+      HIIM_SUB_CMDS: "0x0101,0x0103,0x0105,0x0301,0x0305"
+    depends_on:
+      hub:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seqsvr:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  msgsvr:
+    profiles: ["biz", "smoke", "demo"]
+    build:
+      context: ${HIIM_BUILD_ROOT:-../../..}
+      dockerfile: hi-im/deploy/docker/Dockerfile.m6-msgsvr
+    image: hi-im-msgsvr:${HIIM_M6_TAG:-local}
+    networks: [hiim]
+    environment:
+      <<: *hiim-backend
+      HIIM_NID: "31001"
+      HIIM_HTTP_LISTEN: ":8082"
+      HIIM_SUB_CMDS: "0x030B"
+    depends_on:
+      hub:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      usrsvr:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  gateway:
+    profiles: ["biz", "smoke", "demo"]
+    build:
+      context: ${HIIM_BUILD_ROOT:-../../..}
+      dockerfile: hi-im/deploy/docker/Dockerfile.m6-gateway
+    image: hi-im-gateway:${HIIM_M6_TAG:-local}
+    networks: [hiim]
+    environment:
+      <<: *hiim-m6-env
+      HIIM_FORWARD_ADDR: hub:28888
+      HIIM_NID: "20001"
+      HIIM_HTTP_LISTEN: ":8080"
+      HIIM_WS_PATH: /ws
+      HIIM_SUB_CMDS: "0x0102,0x0106,0x0110,0x0302,0x0306,0x030B,0x030C"
+    depends_on:
+      hub:
+        condition: service_healthy
+      usrsvr:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    ports:
+      - "${HIIM_GATEWAY1_HTTP_PORT:-28080}:8080"
+
+  gateway-2:
+    profiles: ["biz", "smoke", "demo"]
+    build:
+      context: ${HIIM_BUILD_ROOT:-../../..}
+      dockerfile: hi-im/deploy/docker/Dockerfile.m6-gateway
+    image: hi-im-gateway:${HIIM_M6_TAG:-local}
+    networks: [hiim]
+    environment:
+      <<: *hiim-m6-env
+      HIIM_FORWARD_ADDR: hub:28888
+      HIIM_NID: "20002"
+      HIIM_HTTP_LISTEN: ":8080"
+      HIIM_WS_PATH: /ws
+      HIIM_SUB_CMDS: "0x0102,0x0106,0x0110,0x0302,0x0306,0x030B,0x030C"
+    depends_on:
+      hub:
+        condition: service_healthy
+      usrsvr:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    ports:
+      - "${HIIM_GATEWAY2_HTTP_PORT:-28081}:8080"
+
+  demo-web:
+    profiles: ["demo"]
+    image: python:3.12-alpine
+    networks: [hiim]
+    working_dir: /workspace
+    volumes:
+      - ../..:/workspace:ro
+    environment:
+      DEMO_WEB_PORT: "8088"
+      DEMO_WEB_BIND: "0.0.0.0"
+      HIIM_USRSVR_URL: http://usrsvr:8081
+      HIIM_GATEWAY1_WS: ws://gateway:8080/ws
+      HIIM_GATEWAY2_WS: ws://gateway-2:8080/ws
+    depends_on:
+      gateway:
+        condition: service_healthy
+      gateway-2:
+        condition: service_healthy
+      usrsvr:
+        condition: service_healthy
+    ports:
+      - "${HIIM_DEMO_WEB_PORT:-8088}:8088"
+    command: ["python3", "/workspace/scripts/demo-proxy.py"]
+
+  m6-smoke-runner:
+    profiles: ["smoke"]
+    build:
+      context: ${HIIM_BUILD_ROOT:-../../..}
+      dockerfile: hi-im/deploy/docker/Dockerfile.smoke-group
+    image: hi-im-smoke-group:${HIIM_M6_TAG:-local}
+    networks: [hiim]
+    working_dir: /workspace
+    volumes:
+      - ../..:/workspace:ro
+    environment:
+      <<: *hiim-m6-env
+      HIIM_USRSVR_URL: http://usrsvr:8081
+      HIIM_GATEWAY_A_WS: ws://gateway:8080/ws
+      HIIM_GATEWAY_B_WS: ws://gateway-2:8080/ws
+    depends_on:
+      hub:
+        condition: service_healthy
+      usrsvr:
+        condition: service_healthy
+      msgsvr:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+      gateway-2:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/workspace/scripts/smoke/m6-group-chat.sh"]

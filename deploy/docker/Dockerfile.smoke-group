@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1
+
+FROM golang:1.22-alpine AS builder
+WORKDIR /build
+RUN apk add --no-cache git ca-certificates
+COPY hi-im-api /build/hi-im-api
+COPY hi-im /build/hi-im
+WORKDIR /build/hi-im/examples/smoke-group
+RUN go mod download
+RUN go mod tidy
+RUN CGO_ENABLED=0 GOOS=linux go build -o /smoke-group .
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates curl bash
+COPY --from=builder /smoke-group /usr/local/bin/smoke-group
+ENTRYPOINT ["/usr/local/bin/smoke-group"]

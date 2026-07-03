@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1
+# Build from hi-im repo with context ${HIIM_BUILD_ROOT} (default: ../../../ = sibling repos root)
+
+FROM golang:1.22-alpine AS builder
+WORKDIR /build
+RUN apk add --no-cache git ca-certificates
+COPY hi-im-api /build/hi-im-api
+COPY hi-im-hubclient /build/hi-im-hubclient
+COPY hi-im-seqsvr /build/hi-im-seqsvr
+WORKDIR /build/hi-im-seqsvr
+RUN go mod download
+RUN CGO_ENABLED=0 GOOS=linux go build -o /seqsvr ./cmd/seqsvr
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates wget
+COPY --from=builder /seqsvr /usr/local/bin/seqsvr
+EXPOSE 50051 8080
+ENTRYPOINT ["/usr/local/bin/seqsvr"]

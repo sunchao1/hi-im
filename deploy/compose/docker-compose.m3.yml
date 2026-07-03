@@ -20,7 +20,7 @@ services:
       retries: 12
 
   hub:
-    profiles: ["hub", "smoke"]
+    profiles: ["hub", "m3-smoke"]
     image: ${HIIM_HUB_IMAGE:-ghcr.io/sunchao1/hi-im-core/hub:v0.1.0}
     build:
       context: ${HIIM_HUB_BUILD_CONTEXT:-../../../hi-im-core}
@@ -56,7 +56,7 @@ services:
       retries: 12
 
   stub-consumer:
-    profiles: ["smoke"]
+    profiles: ["m3-smoke"]
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.stub
@@ -78,7 +78,7 @@ services:
     restart: unless-stopped
 
   smoke-runner:
-    profiles: ["smoke"]
+    profiles: ["m3-smoke"]
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.stub

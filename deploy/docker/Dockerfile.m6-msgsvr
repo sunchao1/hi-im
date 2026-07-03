@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1
+
+FROM golang:1.22-alpine AS builder
+WORKDIR /build
+RUN apk add --no-cache git ca-certificates
+COPY hi-im-api /build/hi-im-api
+COPY hi-im-hubclient /build/hi-im-hubclient
+COPY hi-im-msgsvr /build/hi-im-msgsvr
+WORKDIR /build/hi-im-msgsvr
+RUN go mod download
+RUN CGO_ENABLED=0 GOOS=linux go build -o /msgsvr ./cmd/msgsvr
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates wget
+COPY --from=builder /msgsvr /usr/local/bin/msgsvr
+EXPOSE 8082
+ENTRYPOINT ["/usr/local/bin/msgsvr"]

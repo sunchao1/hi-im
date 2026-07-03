@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sunchao1/hi-im-api/pkg/im/cmd"
+	"github.com/sunchao1/hi-im-api/pkg/im/header"
 	"github.com/sunchao1/hi-im-hubclient/pkg/hubclient"
 )
 
@@ -144,9 +144,11 @@ func runProducer(log *slog.Logger, user, pass string, benchCmd uint32, count int
 		os.Exit(1)
 	}
 
-	imFrame := make([]byte, 48)
-	binary.BigEndian.PutUint32(imFrame[0:4], benchCmd)
-	binary.BigEndian.PutUint32(imFrame[4:8], destNID)
+	imFrame, err := packBenchFrame(benchCmd, destNID)
+	if err != nil {
+		log.Error("packBenchFrame", "err", err)
+		os.Exit(1)
+	}
 
 	for i := 0; i < count; i++ {
 		if err := client.AsyncSend(benchCmd, destNID, imFrame); err != nil {
@@ -158,6 +160,18 @@ func runProducer(log *slog.Logger, user, pass string, benchCmd uint32, count int
 
 	// Allow hubclient send queue to flush before tearing down the session.
 	time.Sleep(500 * time.Millisecond)
+}
+
+func packBenchFrame(benchCmd, destNID uint32) ([]byte, error) {
+	h := &header.Header{
+		Cmd: benchCmd,
+		Nid: destNID,
+	}
+	buf, err := h.Pack()
+	if err != nil {
+		return nil, err
+	}
+	return buf, nil
 }
 
 func envOr(key, fallback string) string {

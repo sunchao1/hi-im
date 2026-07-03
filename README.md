@@ -70,6 +70,7 @@ L1  hi-im-core（Hub）                                                   ← �
 - **hi-im-core M1**：已完成（Hub + bench 达标）
 - **hi-im-api / hi-im-hubclient M2**：v0.1.0
 - **本仓 M3**：Compose + unicast 冒烟可用（`make m3-smoke`）
+- **本仓 M6**：双窗口群聊 Compose + 终端冒烟（`make m6-smoke`）+ 浏览器 Demo（`make m6-demo`）
 
 ## 快速开始（M3 冒烟）
 
@@ -84,3 +85,19 @@ make m3-smoke
 | `make m3-up` | 启动 hub + redis + smoke 服务 |
 | `make m3-smoke` | 拉起栈并跑 unicast 冒烟（退出码 0/1） |
 | `make m3-down` | 停止并清理卷 |
+
+## 快速开始（M6 双窗口群聊）
+
+```bash
+# sibling 布局：../{hi-im-core,hi-im-api,hi-im-hubclient,hi-im-gateway,hi-im-usrsvr,hi-im-msgsvr,hi-im-seqsvr}
+cp deploy/compose/.env.example deploy/compose/.env   # 端口冲突时改 HIIM_*_HOST_PORT
+make m6-smoke    # 终端验收
+make m6-demo     # 浏览器 http://127.0.0.1:8088/group.html（两窗口）
+```
+
+| 命令 | 说明 |
+|------|------|
+| `make m6-up` | 启动群聊全栈（hub + redis + mysql + seqsvr + usrsvr + msgsvr + gateway×2） |
+| `make m6-smoke` | 双 gateway 群聊端到端冒烟 |
+| `make m6-demo` | 同上 + demo-web（静态页 + usrsvr 代理） |
+| `make m6-down` | 停止并清理 |
