@@ -30,7 +30,7 @@ help:
 	@echo "  make m6-up              Start M6 stack (group chat)"
 	@echo "  make m6-smoke           M6 dual-window group chat smoke"
 	@echo "  make m6-demo            M6 stack + demo-web (see deploy/compose/.env HIIM_DEMO_WEB_PORT)"
-	@echo "  make m6-heal            Ordered restart + ONLINE probe (after partial docker restart)"
+	@echo "  make m6-heal            Ordered restart + demo-web + ONLINE probe (after partial docker restart)"
 	@echo "  make m6-down            Stop M6 stack"
 	@echo "  make m6-logs            Tail M6 compose logs"
 	@echo "  make versions-validate  Check versions/lock.yaml"
