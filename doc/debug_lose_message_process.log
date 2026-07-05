@@ -1,0 +1,30 @@
+# debug_lose_message_process.log
+# 群聊跨 gateway 丢消息排查历程（可跨会话续写）
+# 格式：时间 | 阶段 | 内容
+# ---------------------------------------------------------------------------
+
+## 元信息
+- 问题：窗口 B (uid=100002, gw=2) 收不全窗口 A (uid=100001, gw=1) 的群消息
+- 用户现象：100001 发了 +1~+5，100002 只收到 +4；日志里还有 [uid undefined]
+- 日志文件创建：2026-07-04 20:10 CST（本会话首次创建，此前多轮对话未落盘，从此会话起强制更新）
+- 相关文档：doc/常见错误集.md §5 群消息丢失
+
+## 2026-07-04 20:10 | INIT | 启动排查
+### 假设列表（待验证）
+- H1: hub distributor 未 fan-out 到 gateway-2（SUB/nid 路由问题）
+- H2: msgsvr 只 publish 一次 / 消费竞态（SUB=single）
+- H3: gateway-2 未 SUB GROUP_CHAT 或 WS 下行丢失
+- H4: demo 前端 pb.js decode uid 失败 → [uid undefined] 是显示 bug 非丢包
+- H5: 100002 加群/JOIN 状态不同步，部分消息时不在成员表
+- H6: 浏览器后台/WS 缓冲（Safari visibility）— 用户两窗口都前台则优先级低
+
+### 计划执行顺序
+1. [ ] make m6-smoke / smoke-group 自动化复现（双 gateway burst）
+2. [ ] docker logs 四段 grep（msgsvr/hub/gateway-1/gateway-2）
+3. [ ] 检查 demo/web/pb.js decodeGroupChat
+4. [ ] 对比 smoke-group 通过 vs 浏览器失败 → 定位 frontend vs backend
+5. [ ] 根因修复 + 回归
+
+### 当前进度
+- 已创建本日志文件
+- 下一步：跑 smoke-group burst + 读 pb.js

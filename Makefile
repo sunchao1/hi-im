@@ -19,7 +19,7 @@ HIIM_BUILD_ROOT ?= $(abspath ..)
 export HIIM_HUB_BUILD_CONTEXT
 export HIIM_BUILD_ROOT
 
-.PHONY: help m3-up m3-down m3-smoke m3-logs m6-up m6-down m6-smoke m6-demo m6-heal m6-wait-ready m6-logs versions-validate
+.PHONY: help m3-up m3-down m3-smoke m3-logs m6-up m6-down m6-heal-down m6-smoke m6-demo m6-heal m6-wait-ready m6-logs versions-validate
 
 help:
 	@echo "Targets:"
@@ -30,8 +30,9 @@ help:
 	@echo "  make m6-up              Start M6 stack (group chat)"
 	@echo "  make m6-smoke           M6 dual-window group chat smoke"
 	@echo "  make m6-demo            M6 stack + demo-web (see deploy/compose/.env HIIM_DEMO_WEB_PORT)"
-	@echo "  make m6-heal            Ordered restart + demo-web + ONLINE probe (after partial docker restart)"
-	@echo "  make m6-down            Stop M6 stack"
+	@echo "  make m6-heal            Ordered rebuild/restart + demo-web + ONLINE probe"
+	@echo "  make m6-heal-down       Stop M6 stack (hub/biz/gateways/demo-web; keeps volumes)"
+	@echo "  make m6-down            Alias of m6-heal-down"
 	@echo "  make m6-logs            Tail M6 compose logs"
 	@echo "  make versions-validate  Check versions/lock.yaml"
 
@@ -51,8 +52,10 @@ m3-logs:
 m6-up:
 	$(COMPOSE_M6) $(PROFILES_M6_BIZ) up -d --build
 
-m6-down:
-	$(COMPOSE_M6) $(PROFILES_M6_BIZ) --profile demo down -v --remove-orphans
+m6-heal-down:
+	$(COMPOSE_M6) $(PROFILES_M6_BIZ) --profile demo down --remove-orphans
+
+m6-down: m6-heal-down
 
 m6-smoke:
 	$(COMPOSE_M6) $(PROFILES_M6_SMOKE) up --build --abort-on-container-exit --exit-code-from m6-smoke-runner
@@ -75,7 +78,7 @@ m6-demo:
 	echo "  窗口 A: http://127.0.0.1:$$port/group.html?gw=1  uid=100001"; \
 	echo "  窗口 B: http://127.0.0.1:$$port/group.html?gw=2  uid=100002"; \
 	echo "  先点「注册并连接」，日志出现 ONLINE ok 后再建群"; \
-  echo "  若仍 ONLINE-ACK 超时: make m6-heal  (或 make m6-down && make m6-demo)"; \
+  echo "  若仍 ONLINE-ACK 超时: make m6-heal  (有代码改动先 make m6-heal-down && make m6-heal)"; \
 	echo "  自检: curl -sf http://127.0.0.1:$$hub_port/readyz && curl -sf http://127.0.0.1:$$gw1/readyz"; \
 	echo ""
 

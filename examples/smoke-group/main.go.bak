@@ -185,11 +185,7 @@ func runBurst(usrsvr, gatewayA, gatewayB string, n int) error {
 		prefix := fmt.Sprintf("%d+", peerUID)
 		deadline := time.Now().Add(timeout)
 		for len(got) < n && time.Now().Before(deadline) {
-			remain := time.Until(deadline)
-			if remain <= 0 {
-				break
-			}
-			_, payload, err := c.waitAnyGroupChat(remain)
+			_, payload, err := c.waitAnyGroupChat(deadline.Sub(time.Now()))
 			if err != nil {
 				break
 			}
@@ -201,6 +197,7 @@ func runBurst(usrsvr, gatewayA, gatewayB string, n int) error {
 			if text == "" || !strings.HasPrefix(text, prefix) {
 				continue
 			}
+			// Match by text prefix only; downlink may omit or mis-set uid (see demo uid undefined).
 			got[text] = true
 		}
 		for i := 1; i <= n; i++ {
@@ -210,39 +207,6 @@ func runBurst(usrsvr, gatewayA, gatewayB string, n int) error {
 			}
 		}
 		return nil
-	}
-
-	waitOneGroupChat := func(c *wsClient, peerUID uint64, seq int, timeout time.Duration) error {
-		want := fmt.Sprintf("%d+%d", peerUID, seq)
-		prefix := fmt.Sprintf("%d+", peerUID)
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			remain := time.Until(deadline)
-			_, payload, err := c.waitAnyGroupChat(remain)
-			if err != nil {
-				return err
-			}
-			chat := &imv1.GroupChat{}
-			if err := proto.Unmarshal(payload, chat); err != nil {
-				continue
-			}
-			text := chat.GetText()
-			if text == "" || !strings.HasPrefix(text, prefix) {
-				continue
-			}
-			if text == want {
-				return nil
-			}
-		}
-		return fmt.Errorf("uid=%d missing %q", peerUID, want)
-	}
-
-	reconnect := func(c *wsClient) error {
-		c.close()
-		if err := c.connect(); err != nil {
-			return err
-		}
-		return c.online()
 	}
 
 	fmt.Println("[burst] A -> B")
@@ -256,39 +220,31 @@ func runBurst(usrsvr, gatewayA, gatewayB string, n int) error {
 				fmt.Fprintf(os.Stderr, "A send %s: %v\n", text, err)
 				return
 			}
-			time.Sleep(1000 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 	if err := recvAll(b, a.uid, n, 30*time.Second); err != nil {
-		wg.Wait()
 		return fmt.Errorf("B recv from A: %w", err)
 	}
 	wg.Wait()
 
 	fmt.Println("[burst] B -> A")
-	// Fresh WS after A→B: gorilla marks conn corrupt after read timeout; concurrent
-	// send/recv also leaves unread downlink frames that stall the reverse path.
-	if err := reconnect(a); err != nil {
-		return fmt.Errorf("A reconnect: %w", err)
-	}
-	if err := reconnect(b); err != nil {
-		return fmt.Errorf("B reconnect: %w", err)
-	}
-	if err := a.groupJoin(gid); err != nil {
-		return fmt.Errorf("A re-join: %w", err)
-	}
-	if err := b.groupJoin(gid); err != nil {
-		return fmt.Errorf("B re-join: %w", err)
-	}
-	for i := 1; i <= n; i++ {
-		text := fmt.Sprintf("%d+%d", b.uid, i)
-		if err := b.groupChat(gid, text); err != nil {
-			return fmt.Errorf("B send %s: %w", text, err)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 1; i <= n; i++ {
+			text := fmt.Sprintf("%d+%d", b.uid, i)
+			if err := b.groupChat(gid, text); err != nil {
+				fmt.Fprintf(os.Stderr, "B send %s: %v\n", text, err)
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
 		}
-		if err := waitOneGroupChat(a, b.uid, i, 15*time.Second); err != nil {
-			return fmt.Errorf("A recv from B: %w", err)
-		}
+	}()
+	if err := recvAll(a, b.uid, n, 30*time.Second); err != nil {
+		return fmt.Errorf("A recv from B: %w", err)
 	}
+	wg.Wait()
 	return nil
 }
 

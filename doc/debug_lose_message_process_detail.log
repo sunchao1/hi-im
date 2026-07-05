@@ -1,0 +1,33 @@
+# debug_lose_message_process_detail.log
+# 群聊跨 gateway 丢消息 — 分步验证明细（跨会话续写）
+# 格式：时间 CST | STEP-N | 状态 | 内容
+# 主日志：doc/debug_lose_message_process.log
+# ---------------------------------------------------------------------------
+
+## 元信息
+- 问题：uid=100002 (gw=2) 收不全 uid=100001 (gw=1) 群消息；[uid undefined]
+- 用户三条猜测：①网关集群超时 ②只广播本地 ③UID未序列化/前端阻塞
+- 本会话启动：2026-07-04 21:18 CST
+- 验证原则：每步先写计划 → 执行 → 记录结论 → 再下一步
+
+## 假设（更新版）
+| ID | 假设 | 优先级 |
+|----|------|--------|
+| H1 | msgsvr 未 fan-out 到 gateway-2 NID | P1 |
+| H2 | hub → gateway TCP 丢包（seq 跳跃） | P1 |
+| H3 | gateway 第二段 ImGroup/WS 写失败 | P2 |
+| H4 | gateway 下行 GroupChat uid 字段缺失 → undefined | P2 |
+| H5 | demo 前端 pb.js 字段号错误 | P3 |
+| H6 | 浏览器/前端同步阻塞 | P3（已被 burst 否定） |
+| H7 | 网关间直连集群超时 | 排除（架构无此路径） |
+
+## 执行计划
+- [ ] STEP-1: burst 自动化复现 + 记录缺失条
+- [ ] STEP-2: msgsvr 日志 — 是否双 NID fan-out ok
+- [ ] STEP-3: gateway-1/2 日志 — hub tcp recv vs downlink recv 逐条对比
+- [ ] STEP-4: hub 日志 — bridge/distributor/async_send 断点
+- [ ] STEP-5: pb.js vs proto 字段对照
+- [ ] STEP-6: hi-im-gateway 源码 — group_chat downlink + uid 序列化
+- [ ] STEP-7: 归纳根因 + 修复建议
+
+# ---------------------------------------------------------------------------

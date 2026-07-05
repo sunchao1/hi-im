@@ -31,20 +31,17 @@ services:
     environment:
       <<: *hiim-env
     command:
-      - --forward-listen
-      - 0.0.0.0:28888
-      - --backend-listen
-      - 0.0.0.0:28889
-      - --health-listen
-      - 0.0.0.0:8080
-      - --auth-user
-      - ${HIIM_AUTH_USER:-proxy}
-      - --auth-pass
-      - ${HIIM_AUTH_PASS:-proxy}
-      - --reactor-threads
-      - "2"
-      - --worker-threads
-      - "2"
+      - sh
+      - -c
+      - |
+        exec stdbuf -oL -eL hi-im-hub \
+          --forward-listen 0.0.0.0:28888 \
+          --backend-listen 0.0.0.0:28889 \
+          --health-listen 0.0.0.0:8080 \
+          --auth-user $${HIIM_AUTH_USER:-proxy} \
+          --auth-pass $${HIIM_AUTH_PASS:-proxy} \
+          --reactor-threads 2 \
+          --worker-threads 2
     ports:
       - "${HIIM_FORWARD_HOST_PORT:-28888}:28888"
       - "${HIIM_BACKEND_HOST_PORT:-28889}:28889"

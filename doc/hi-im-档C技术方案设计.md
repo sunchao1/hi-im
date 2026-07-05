@@ -2,7 +2,7 @@
 
 > **定位**：必嗨 IM 原栈作者不再维护；以 **hi-im** 为新项目名，**hi-im-core**（C++17/20）重写 RTMQ Hub 并做架构升级，Go 业务层独立仓库迭代，**Gin + gRPC** 替换 beego + Thrift。  
 > **档 C 范围**：Hub 分片 + 可观测 + io_uring 可选 + Kafka 削峰（方向二）+ K8s 部署。  
-> **版本**：v0.4-draft · 2026-06-25  
+> **版本**：v0.4-draft · 2026-06-25（§5.3 队列语义修订 2026-07-05）  
 > **主仓**：本文档 canonical 副本位于 **[hi-im](https://github.com/sunchao1/hi-im)**（编排、文档、Compose/K8s）；原稿中的 `hi-im-deploy` 已统一为本仓库名 **`hi-im`**。  
 > **许可证**：[Apache License 2.0](../LICENSE)
 
@@ -306,8 +306,28 @@ BACKEND 收到下行帧  →  Hub.async_send(FORWARD, cmd, dest_nid, payload)
 | rsvr × N | epoll 收发包、snap 拼帧 | epoll 或 **io_uring**（编译开关 `HIIM_USE_URING`） |
 | dist × 1 | nid → rsvr 投递 | 同左 + 分片路由表 |
 | worker × M | 业务回调 / bridge | 同左 |
-| 队列 | pipe + 有锁队列 | **SPSC 无锁环** + 内存池（`std::vector` 预分配） |
+| 队列 | pipe + 有锁队列 | **按队列区分 MPSC / SPSC**（见 §5.3.1）；Phase 2 可升级 SPSC 无锁环 |
 | 发送 | writev 批量 | 同左 + 发送 coalesce |
+
+#### 5.3.1 线程间队列语义（MPSC / SPSC）
+
+Hub 单进程内四类有界队列，**必须按生产者数量选型**；不可一律标注 SPSC。
+
+| 队列 | 生产者 | 消费者 | 模型 | Phase 1 实现 |
+|------|--------|--------|------|----------------|
+| `ConnQueue[i]` | Listener（accept 到 reactor i） | Reactor[i] | **SPSC** | SpscQueue |
+| `RecvQueue[j]` | Reactor 0..N-1（`PickWorker(sid)`） | Worker[j] | **MPSC** | MpscQueue |
+| `DistQueue` | Worker 0..M-1（`Publish` / `AsyncSend`） | Distributor ×1 | **MPSC** | MpscQueue |
+| `SendQueue[i]` | Distributor ×1 | Reactor[i] | **SPSC** | SpscQueue |
+
+设计约束（与 [hi-im-core 技术设计文档](https://github.com/sunchao1/hi-im-core/blob/main/doc/技术设计文档.md) §5.2 一致）：
+
+1. **Distributor 单线程** Pop `DistQueue`，唯一写入各 `SendQueue[i]`，避免多写 sendq 竞态。  
+2. **Worker 线程安全入队**：业务线程（bridge 回调）通过 `Publish` / `AsyncSend` 入 `DistQueue`，须 MPSC。  
+3. **Reactor 拼帧**：`FrameBuffer::TryPopFrame` 须在 `erase` 前 **拷贝 payload**（sticky TCP 连发 fan-out 时不可返回悬垂 span）。  
+4. **背压**：队列满返回 `QueueFull`，记录 `hiim_drop_total`；msgsvr fan-out 宜 best-effort 并打日志。
+
+**生产踩坑记录**（2026-07 跨 Gateway 群聊丢消息）：曾将 `DistQueue` / `RecvQueue` 误实现为 SPSC，多 Worker 并发 Push 与 Distributor/Reactor Pop 竞态 → 偶发 **同一 seq 重复投 GW1、漏投 GW2**。详见 [系统问题收集/问题集合1.md](./系统问题收集/问题集合1.md)。
 
 ### 5.4 Hub 分片（档 C 核心）
 
@@ -326,7 +346,18 @@ Shard-1: NID ∈ [20101, 20200]  →  hi-im-hub-1:28888/28889
 | **msgsvr / chatroom** | 可连 **任意 shard BACKEND**（multi-backend 配置） |
 | **async_send(nid)** | Hub 若 nid 不属于本 shard，**转发至 owner shard**（Hub 间 gRPC 或 TCP 内部链路，Phase 2） |
 
-**Phase 1（简化）**：单 Shard 跑通 + bench 对齐；**Phase 2** 多 Shard + 跨 shard 转发。
+**Phase 1（简化）**：单 Shard 跑通 + bench 对齐；**Phase 2** 多 Shard + 跨 shard 转发。  
+**K8s 生产详案**：[hi-im-档C-多hub设计方案.md](./hi-im-档C-多hub设计方案.md)。
+
+**Phase 2 数据一致性要点**（在 §5.3.1 队列语义正确前提下）：
+
+| 项 | 要求 |
+|----|------|
+| NID → shard | gateway / msgsvr / hub 转发 **共用同一路由函数**（范围表或一致性哈希） |
+| gateway 连接 | 生命周期内 FORWARD **只连 owner shard**，禁止 Service 盲 LB |
+| 跨 shard AsyncSend | 非 owner 必须 **转发或明确失败**，禁止静默丢；语义 at-most-once，业务可重试 |
+| 重复投递 | 转发路径与本地路径 **二选一**；可选 wire v2 `trace_id` 去重 |
+| msgsvr 多副本 | 与 Hub 分片正交；SUB 策略 / Kafka 分片保证 publish 不重复消费 |
 
 ### 5.5 对外 API（C++ Proxy SDK）
 
@@ -518,6 +549,8 @@ Compose 内 **`frwder` + `hi-im-hub`** 不同端口；部分 Go 进程切到 hi-
 ---
 
 ## 10. 部署（K8s 概要）
+
+> **完整多 Hub 方案**（百万在线、各服务 HPA、Helm）：[hi-im-档C-多hub设计方案.md](./hi-im-档C-多hub设计方案.md)。
 
 ```text
 Ingress (wss://im.example.com)

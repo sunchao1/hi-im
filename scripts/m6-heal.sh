@@ -144,7 +144,8 @@ run_online_probe() {
   go run . -online-only
 }
 
-echo "[m6-heal] ensure M6 containers exist (rebuild hub for bridge IM-header routing)..."
+echo "[m6-heal] ensure M6 containers exist (rebuild hub/gateway/msgsvr for bridge routing + downlink fixes)..."
+"${COMPOSE[@]}" "${PROFILES[@]}" build hub gateway msgsvr
 "${COMPOSE[@]}" "${PROFILES[@]}" up -d --build hub
 "${COMPOSE[@]}" "${PROFILES[@]}" up -d usrsvr msgsvr seqsvr gateway gateway-2
 

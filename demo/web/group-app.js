@@ -21,6 +21,7 @@ const state = {
   pendingOnline: null,
   pendingJoin: null,
   onlineReady: false,
+  recentSent: new Set(),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -219,9 +220,12 @@ function handleMessage(buf) {
     }
     case CMD.GROUP_CHAT: {
       const chat = PB.decodeGroupChat(msg.body);
-      // Skip server echo for our own sends (already shown in sendChat local echo).
-      if (Number(chat.uid) === state.uid) break;
-      log(`[uid ${chat.uid}] ${chat.text}`);
+      const chatUID = Number(chat.uid);
+      // Skip server echo for our own sends (local echo in sendChat).
+      if (chatUID === state.uid) break;
+      // Some downlink copies omit uid; skip if we just sent the same text locally.
+      if (!chatUID && state.recentSent.has(chat.text)) break;
+      log(`[uid ${chat.uid ?? "?"}] ${chat.text}`);
       break;
     }
     case CMD.GROUP_CHAT_ACK: {
@@ -313,6 +317,7 @@ function sendChat() {
       text,
     })
   );
+  state.recentSent.add(text);
   log(`[uid ${state.uid}] ${text}`, "self");
   $("chatBox").value = "";
 }
